@@ -99,6 +99,12 @@ pub fn default_field_visibility(layout_type: DatabaseLayout) -> FieldVisibility 
     DatabaseLayout::Grid => FieldVisibility::AlwaysShown,
     DatabaseLayout::Board => FieldVisibility::HideWhenEmpty,
     DatabaseLayout::Calendar => FieldVisibility::HideWhenEmpty,
+    // Added layouts (Chart/List/Gallery/Feed) mirror Grid: all fields shown by
+    // default. Chart-specific config is written client-side via layout_settings.
+    DatabaseLayout::Chart => FieldVisibility::AlwaysShown,
+    DatabaseLayout::List => FieldVisibility::AlwaysShown,
+    DatabaseLayout::Gallery => FieldVisibility::AlwaysShown,
+    DatabaseLayout::Feed => FieldVisibility::AlwaysShown,
   }
 }
 

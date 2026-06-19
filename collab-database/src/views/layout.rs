@@ -17,6 +17,10 @@ pub enum DatabaseLayout {
   Grid = 0,
   Board = 1,
   Calendar = 2,
+  Chart = 3,
+  List = 4,
+  Gallery = 5,
+  Feed = 6,
 }
 
 impl DatabaseLayout {
@@ -31,6 +35,10 @@ impl AsRef<str> for DatabaseLayout {
       DatabaseLayout::Grid => "0",
       DatabaseLayout::Board => "1",
       DatabaseLayout::Calendar => "2",
+      DatabaseLayout::Chart => "3",
+      DatabaseLayout::List => "4",
+      DatabaseLayout::Gallery => "5",
+      DatabaseLayout::Feed => "6",
     }
   }
 }
@@ -43,6 +51,10 @@ impl FromStr for DatabaseLayout {
       "0" => Ok(DatabaseLayout::Grid),
       "1" => Ok(DatabaseLayout::Board),
       "2" => Ok(DatabaseLayout::Calendar),
+      "3" => Ok(DatabaseLayout::Chart),
+      "4" => Ok(DatabaseLayout::List),
+      "5" => Ok(DatabaseLayout::Gallery),
+      "6" => Ok(DatabaseLayout::Feed),
       _ => bail!("Invalid layout type"),
     }
   }
@@ -60,6 +72,10 @@ impl From<i64> for DatabaseLayout {
       0 => DatabaseLayout::Grid,
       1 => DatabaseLayout::Board,
       2 => DatabaseLayout::Calendar,
+      3 => DatabaseLayout::Chart,
+      4 => DatabaseLayout::List,
+      5 => DatabaseLayout::Gallery,
+      6 => DatabaseLayout::Feed,
       _ => Self::default(),
     }
   }
