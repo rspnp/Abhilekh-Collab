@@ -76,6 +76,10 @@ pub struct Group {
   pub id: String,
   #[serde(default = "GROUP_VISIBILITY")]
   pub visible: bool,
+  /// Abhilekh: optional board-column color (hex string, e.g. "0xFFA34AFD").
+  /// A schemaless extra key — clients without this field simply ignore it.
+  #[serde(default)]
+  pub color: Option<String>,
 }
 
 impl TryFrom<GroupMap> for Group {
@@ -88,10 +92,14 @@ impl TryFrom<GroupMap> for Group {
 
 impl From<Group> for GroupMap {
   fn from(group: Group) -> Self {
-    GroupMapBuilder::from([
+    let mut map = GroupMapBuilder::from([
       ("id".into(), group.id.into()),
       ("visible".into(), group.visible.into()),
-    ])
+    ]);
+    if let Some(color) = group.color {
+      map.insert("color".into(), color.into());
+    }
+    map
   }
 }
 
@@ -99,6 +107,10 @@ const GROUP_VISIBILITY: fn() -> bool = || true;
 
 impl Group {
   pub fn new(id: String) -> Self {
-    Self { id, visible: true }
+    Self {
+      id,
+      visible: true,
+      color: None,
+    }
   }
 }
