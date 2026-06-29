@@ -191,6 +191,7 @@ impl FieldTemplateBuilder {
         let type_option = SelectTypeOption {
           options,
           disable_color: false,
+          ..Default::default()
         };
         let cell_template =
           replace_cells_with_options_id(self.cells, &type_option.options, SELECT_OPTION_SEPARATOR)

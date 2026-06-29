@@ -20,6 +20,18 @@ pub struct SelectTypeOption {
   pub options: Vec<SelectOption>,
   #[serde(default)]
   pub disable_color: bool,
+  /// Field-preset marker (rspnp): binds this select field to a backend reference
+  /// dataset (e.g. "nepal-province"). Rides inside the `content` JSON alongside
+  /// `options`, so it round-trips with the rest of the type option.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub preset_key: Option<String>,
+  /// Field-preset cascade link (rspnp): the sibling field id this child preset
+  /// (e.g. District) filters by (e.g. a Province field). Stored at the TOP
+  /// `TypeOptionData` level (sibling of `content`) to match the web client, so it
+  /// is `#[serde(skip)]` here and handled explicitly in the `TypeOptionData`
+  /// conversions below.
+  #[serde(skip)]
+  pub parent_field_id: Option<String>,
 }
 
 impl TypeOptionCellReader for SelectTypeOption {
@@ -80,17 +92,27 @@ impl SelectTypeOption {
 
 impl From<TypeOptionData> for SelectTypeOption {
   fn from(data: TypeOptionData) -> Self {
-    data
+    let mut type_option = data
       .get_as::<String>("content")
       .map(|s| serde_json::from_str::<SelectTypeOption>(&s).unwrap_or_default())
-      .unwrap_or_default()
+      .unwrap_or_default();
+    // `parent_field_id` lives at the top TypeOptionData level (sibling of
+    // `content`), matching the web client; read it back here.
+    type_option.parent_field_id = data.get_as::<String>("parent_field_id");
+    type_option
   }
 }
 
 impl From<SelectTypeOption> for TypeOptionData {
   fn from(data: SelectTypeOption) -> Self {
+    // `content` carries options/disable_color/preset_key; `parent_field_id` is
+    // `#[serde(skip)]`, so re-emit it as a top-level key to match the web layout.
     let content = serde_json::to_string(&data).unwrap_or_default();
-    TypeOptionDataBuilder::from([("content".into(), content.into())])
+    let mut builder = TypeOptionDataBuilder::from([("content".into(), content.into())]);
+    if let Some(parent_field_id) = &data.parent_field_id {
+      builder.insert("parent_field_id".into(), parent_field_id.clone().into());
+    }
+    builder
   }
 }
 
@@ -458,6 +480,7 @@ mod tests {
     let select_type_option = SelectTypeOption {
       options,
       disable_color: false,
+      ..Default::default()
     };
 
     let serialized = serde_json::to_string(&select_type_option).unwrap();
@@ -514,6 +537,7 @@ mod tests {
     let single_select = SingleSelectTypeOption(SelectTypeOption {
       options,
       disable_color: false,
+      ..Default::default()
     });
 
     let json_value = json!({ "name": "Option A" });
@@ -529,6 +553,7 @@ mod tests {
     let multi_select = MultiSelectTypeOption(SelectTypeOption {
       options,
       disable_color: false,
+      ..Default::default()
     });
 
     let json_value = json!([
@@ -574,6 +599,7 @@ mod tests {
     let select_type_option = SelectTypeOption {
       options,
       disable_color: false,
+      ..Default::default()
     };
 
     let result = select_type_option.convert_raw_cell_data(&raw_data);
@@ -618,6 +644,7 @@ mod tests {
     let select_type_option = SelectTypeOption {
       options,
       disable_color: false,
+      ..Default::default()
     };
     let single_select = SingleSelectTypeOption(select_type_option);
     let single_select_cell_reader: Box<dyn TypeOptionCellReader> = Box::new(single_select);
@@ -635,6 +662,7 @@ mod tests {
     let select_type_option = SelectTypeOption {
       options,
       disable_color: false,
+      ..Default::default()
     };
 
     let multi_selection_type_option = MultiSelectTypeOption(select_type_option);
@@ -678,6 +706,7 @@ mod tests {
     let select_type_option = SelectTypeOption {
       options,
       disable_color: false,
+      ..Default::default()
     };
     let single_select = SingleSelectTypeOption(select_type_option);
 
@@ -697,6 +726,7 @@ mod tests {
     let select_type_option = SelectTypeOption {
       options,
       disable_color: false,
+      ..Default::default()
     };
     let single_select = SingleSelectTypeOption(select_type_option);
 
