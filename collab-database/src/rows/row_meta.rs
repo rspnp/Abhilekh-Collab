@@ -89,6 +89,20 @@ impl<'a, 'b> RowMetaUpdate<'a, 'b> {
       .insert(self.txn, attachment_count_id, attachment_count);
     self
   }
+
+  /// Abhilekh: set (`Some`) or clear (`None`) the board completion timestamp.
+  pub fn set_completed_at(self, completed_at: Option<i64>) -> Self {
+    let completed_at_id = meta_id_from_row_id(&self.row_id, RowMetaKey::CompletedAt);
+    match completed_at {
+      Some(ts) => {
+        self.map_ref.insert(self.txn, completed_at_id, ts);
+      },
+      None => {
+        self.map_ref.remove(self.txn, &completed_at_id);
+      },
+    }
+    self
+  }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -114,6 +128,9 @@ pub struct RowMeta {
   pub cover: Option<RowCover>,
   pub is_document_empty: bool,
   pub attachment_count: i64,
+  /// Abhilekh: epoch-seconds when the row entered the board's Done column (None if not done).
+  #[serde(default)]
+  pub completed_at: Option<i64>,
 }
 
 impl RowMeta {
@@ -124,6 +141,7 @@ impl RowMeta {
       cover: None,
       is_document_empty: true,
       attachment_count: 0,
+      completed_at: None,
     }
   }
 
@@ -147,6 +165,10 @@ impl RowMeta {
           &meta_id_from_row_id(row_id, RowMetaKey::AttachmentCount),
         )
         .unwrap_or(0),
+      completed_at: map_ref.get_with_txn(
+        txn,
+        &meta_id_from_row_id(row_id, RowMetaKey::CompletedAt),
+      ),
     }
   }
 

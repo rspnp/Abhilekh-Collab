@@ -330,6 +330,61 @@ async fn update_row_meta_test() {
   assert_eq!(cover.data, "cover 123".to_string());
   assert_eq!(row_meta.icon_url, Some("icon 123".to_string()));
   assert!(!row_meta.is_document_empty);
+
+  // Abhilekh: completed_at round-trips (set, then clear).
+  assert_eq!(row_meta.completed_at, None);
+  database_test
+    .update_row_meta(&row_order.id, |meta_update| {
+      meta_update.set_completed_at(Some(1_782_000_000));
+    })
+    .await;
+  let row_meta = database_test.get_row_meta(&row_order.id).await.unwrap();
+  assert_eq!(row_meta.completed_at, Some(1_782_000_000));
+
+  database_test
+    .update_row_meta(&row_order.id, |meta_update| {
+      meta_update.set_completed_at(None);
+    })
+    .await;
+  let row_meta = database_test.get_row_meta(&row_order.id).await.unwrap();
+  assert_eq!(row_meta.completed_at, None);
+}
+
+#[tokio::test]
+async fn archive_restore_row_test() {
+  // Abhilekh: archiving sets `archived_at` but RETAINS the row in row_orders
+  // (soft-delete); restoring clears it. Distinct from remove_row (hard delete).
+  let database_id = uuid::Uuid::new_v4().to_string();
+  let mut database_test = create_database(1, &database_id);
+  let row_order = database_test
+    .create_row(CreateRowParams::new(gen_row_id(), database_id.clone()))
+    .await
+    .unwrap();
+
+  let row = database_test.get_row(&row_order.id).await;
+  assert_eq!(row.archived_at, None);
+
+  // Archive
+  database_test
+    .update_row(row_order.id.clone(), |update| {
+      update.set_archived_at(1_782_000_000);
+    })
+    .await;
+  let row = database_test.get_row(&row_order.id).await;
+  assert_eq!(row.archived_at, Some(1_782_000_000));
+  // Retained: still present in the view's row_orders (unlike a hard delete).
+  let view_1 = database_test.get_view("v1").unwrap();
+  assert_eq!(view_1.row_orders.len(), 1);
+  assert_eq!(view_1.row_orders[0].id, row_order.id);
+
+  // Restore
+  database_test
+    .update_row(row_order.id.clone(), |update| {
+      update.clear_archived_at();
+    })
+    .await;
+  let row = database_test.get_row(&row_order.id).await;
+  assert_eq!(row.archived_at, None);
 }
 
 #[tokio::test]

@@ -259,6 +259,7 @@ impl DatabaseRowBody {
             .set_visibility(row.visibility)
             .set_created_at(row.created_at)
             .set_last_modified(row.modified_at)
+            .set_archived_at_if_not_none(row.archived_at)
             .set_cells(row.cells);
         })
         .done();
@@ -389,6 +390,14 @@ pub struct Row {
   pub created_at: i64,
   #[serde(alias = "last_modified", deserialize_with = "deserialize_i64")]
   pub modified_at: i64,
+  /// Abhilekh: epoch-seconds when the row was archived (soft-deleted); `None` when active.
+  /// Archived rows are retained (kept in row_orders) but hidden from views by default.
+  /// `deserialize_option_i64` tolerates the Web client writing this as a string (epoch seconds),
+  /// like `created_at`/`modified_at` above. Without it a string value fails the whole-row
+  /// deserialize in `row_from_map_ref` and the entire row is dropped on the App (cross-client
+  /// data loss), not just the archive flag.
+  #[serde(default, deserialize_with = "deserialize_option_i64")]
+  pub archived_at: Option<i64>,
 }
 
 fn deserialize_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
@@ -413,6 +422,32 @@ where
   }
 }
 
+/// Option-aware variant of [`deserialize_i64`]: accepts a number OR a string (cross-client
+/// timestamps), and treats an absent/null value as `None`. Used for nullable epoch fields like
+/// `archived_at` / `completed_at`, which the Web client may write as strings.
+fn deserialize_option_i64<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+  D: serde::Deserializer<'de>,
+{
+  use serde::de::{self, Unexpected};
+  match Option::<serde_json::Value>::deserialize(deserializer)? {
+    None | Some(serde_json::Value::Null) => Ok(None),
+    Some(serde_json::Value::Number(num)) => num.as_i64().map(Some).ok_or_else(|| {
+      de::Error::invalid_type(
+        Unexpected::Other(&format!("{:?}", num)),
+        &"a valid i64 number",
+      )
+    }),
+    Some(serde_json::Value::String(s)) => s.parse::<i64>().map(Some).map_err(|_| {
+      de::Error::invalid_type(Unexpected::Str(&s), &"a string that can be parsed into i64")
+    }),
+    Some(other) => Err(de::Error::invalid_type(
+      Unexpected::Other(&format!("{:?}", other)),
+      &"a number or a string that can be parsed into i64",
+    )),
+  }
+}
+
 fn default_visibility() -> bool {
   true
 }
@@ -424,6 +459,9 @@ pub enum RowMetaKey {
   CoverId,
   IsDocumentEmpty,
   AttachmentCount,
+  /// Abhilekh: epoch-seconds timestamp stamped when the row enters the board's
+  /// designated "Done" column, cleared when it leaves.
+  CompletedAt,
 }
 
 impl RowMetaKey {
@@ -434,6 +472,7 @@ impl RowMetaKey {
       Self::CoverId => "cover_id",
       Self::IsDocumentEmpty => "is_document_empty",
       Self::AttachmentCount => "attachment_count",
+      Self::CompletedAt => "completed_at",
     }
   }
 }
@@ -454,6 +493,7 @@ impl Row {
       visibility: true,
       created_at: timestamp,
       modified_at: timestamp,
+      archived_at: None,
     }
   }
 
@@ -466,6 +506,7 @@ impl Row {
       visibility: true,
       created_at: 0,
       modified_at: 0,
+      archived_at: None,
     }
   }
 
@@ -556,6 +597,13 @@ impl<'a, 'b> RowUpdate<'a, 'b> {
     set_last_modified_if_not_none,
     LAST_MODIFIED
   );
+  impl_i64_update!(set_archived_at, set_archived_at_if_not_none, ROW_ARCHIVED_AT);
+
+  /// Abhilekh: clear the archive marker (restore the row).
+  pub fn clear_archived_at(self) -> Self {
+    self.map_ref.remove(self.txn, ROW_ARCHIVED_AT);
+    self
+  }
 
   pub fn set_database_id(self, database_id: String) -> Self {
     self.map_ref.insert(self.txn, ROW_DATABASE_ID, database_id);
@@ -631,6 +679,8 @@ pub(crate) const ROW_VISIBILITY: &str = "visibility";
 
 pub const ROW_HEIGHT: &str = "height";
 pub const ROW_CELLS: &str = "cells";
+/// Abhilekh: epoch-seconds the row was archived (soft-deleted); absent when active.
+pub const ROW_ARCHIVED_AT: &str = "archived_at";
 
 /// Return row id and created_at from a [YrsValue]
 pub fn row_id_from_value<T: ReadTxn>(value: YrsValue, txn: &T) -> Option<(String, i64)> {
@@ -758,6 +808,7 @@ impl From<CreateRowParams> for Row {
       visibility: params.visibility,
       created_at: params.created_at,
       modified_at: params.modified_at,
+      archived_at: None,
     }
   }
 }
@@ -805,5 +856,43 @@ mod tests {
     let row: Row = serde_json::from_value(input_with_string)
       .expect("Failed to deserialize row with string as i64");
     assert_eq!(row.created_at, 1678901234);
+  }
+
+  #[test]
+  fn test_archived_at_accepts_string_number_null_and_absent() {
+    // Abhilekh regression: the Web client writes `archived_at` as a STRING (epoch seconds).
+    // Without the Option-aware string-tolerant deserializer the whole row fails to deserialize
+    // in `row_from_map_ref` and is dropped on the App — cross-client data loss.
+    let with_archived = |archived: serde_json::Value| {
+      json!({
+        "id": "abcd",
+        "database_id": "database_id",
+        "cells": {},
+        "height": 100,
+        "visibility": true,
+        "created_at": 1678901234,
+        "modified_at": 1678901234,
+        "archived_at": archived,
+      })
+    };
+    let row: Row = serde_json::from_value(with_archived(json!("1678905000")))
+      .expect("string archived_at must deserialize");
+    assert_eq!(row.archived_at, Some(1678905000));
+    let row: Row = serde_json::from_value(with_archived(json!(1678905000))).unwrap();
+    assert_eq!(row.archived_at, Some(1678905000));
+    let row: Row = serde_json::from_value(with_archived(json!(null))).unwrap();
+    assert_eq!(row.archived_at, None);
+    // Absent key -> None (serde default).
+    let row: Row = serde_json::from_value(json!({
+      "id": "abcd",
+      "database_id": "database_id",
+      "cells": {},
+      "height": 100,
+      "visibility": true,
+      "created_at": 1678901234,
+      "modified_at": 1678901234,
+    }))
+    .unwrap();
+    assert_eq!(row.archived_at, None);
   }
 }

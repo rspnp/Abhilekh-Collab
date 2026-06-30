@@ -30,6 +30,11 @@ pub struct GroupSetting {
   pub groups: Vec<Group>,
   #[serde(default)]
   pub content: String,
+  /// Abhilekh: optional id of the group/column designated as the board's "Done"
+  /// column (the completion-stamp logic keys off this). A schemaless extra key —
+  /// clients without this field simply ignore it.
+  #[serde(default)]
+  pub done_group_id: Option<String>,
 }
 
 impl GroupSetting {
@@ -40,6 +45,7 @@ impl GroupSetting {
       field_type,
       groups: vec![],
       content,
+      done_group_id: None,
     }
   }
 }
@@ -49,6 +55,7 @@ const FIELD_ID: &str = "field_id";
 const FIELD_TYPE: &str = "ty";
 const GROUPS: &str = "groups";
 const CONTENT: &str = "content";
+const DONE_GROUP_ID: &str = "done_group_id";
 
 impl TryFrom<GroupSettingMap> for GroupSetting {
   type Error = anyhow::Error;
@@ -61,13 +68,17 @@ impl TryFrom<GroupSettingMap> for GroupSetting {
 impl From<GroupSetting> for GroupSettingMap {
   fn from(setting: GroupSetting) -> Self {
     let groups = to_any(&setting.groups).unwrap_or_else(|_| Any::Array(Arc::from([])));
-    GroupSettingBuilder::from([
+    let mut map = GroupSettingBuilder::from([
       (GROUP_ID.into(), setting.id.into()),
       (FIELD_ID.into(), setting.field_id.into()),
       (FIELD_TYPE.into(), Any::BigInt(setting.field_type)),
       (GROUPS.into(), groups),
       (CONTENT.into(), setting.content.into()),
-    ])
+    ]);
+    if let Some(done_group_id) = setting.done_group_id {
+      map.insert(DONE_GROUP_ID.into(), done_group_id.into());
+    }
+    map
   }
 }
 
